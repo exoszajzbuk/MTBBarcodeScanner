@@ -56,6 +56,16 @@
 @property (weak, nonatomic) UIView *previewView;
 
 /*!
+ @property rectOfInterest
+ @abstract
+ A rect used to search for barcodes in.
+
+ @discussion
+ This is the rectangle in which the barcode reading is performed.
+ */
+@property (assign, nonatomic) CGRect rectOfInterest;
+
+/*!
  @property resultBlock
  @abstract
  Block that's called for every barcode captured. Returns an array of AVMetadataMachineReadableCodeObjects.
@@ -97,10 +107,18 @@ CGFloat const kFocalPointOfInterestY = 0.5;
 }
 
 - (instancetype)initWithPreviewView:(UIView *)previewView {
+    self = [self initWithPreviewView:previewView
+                      rectOfInterest:CGRectNull];
+    return self;
+}
+
+- (instancetype)initWithPreviewView:(UIView *)previewView
+                     rectOfInterest:(CGRect)rectOfInterest {
     NSParameterAssert(previewView);
     self = [super init];
     if (self) {
         _previewView = previewView;
+        _rectOfInterest = rectOfInterest;
         _metaDataObjectTypes = [self defaultMetaDataObjectTypes];
         [self addRotationObserver];
     }
@@ -109,15 +127,25 @@ CGFloat const kFocalPointOfInterestY = 0.5;
 
 - (instancetype)initWithMetadataObjectTypes:(NSArray *)metaDataObjectTypes
                                 previewView:(UIView *)previewView {
+    self = [self initWithMetadataObjectTypes:metaDataObjectTypes
+                                 previewView:previewView
+                              rectOfInterest:CGRectNull];
+    return self;
+}
+
+- (instancetype)initWithMetadataObjectTypes:(NSArray *)metaDataObjectTypes
+                                previewView:(UIView *)previewView
+                             rectOfInterest:(CGRect)rectOfInterest {
     NSParameterAssert(metaDataObjectTypes);
     NSParameterAssert(previewView);
     self = [super init];
     if (self) {
         NSAssert(!([metaDataObjectTypes indexOfObject:AVMetadataObjectTypeFace] != NSNotFound),
                  @"The type %@ is not supported by MTBBarcodeScanner.", AVMetadataObjectTypeFace);
-        
+
         _metaDataObjectTypes = metaDataObjectTypes;
         _previewView = previewView;
+        _rectOfInterest = rectOfInterest;
         [self addRotationObserver];
     }
     return self;
@@ -286,12 +314,56 @@ CGFloat const kFocalPointOfInterestY = 0.5;
         [captureOutput setMetadataObjectsDelegate:self queue:dispatch_get_main_queue()];
         [newSession addOutput:captureOutput];
         captureOutput.metadataObjectTypes = self.metaDataObjectTypes;
-        
+
         self.capturePreviewLayer = nil;
         self.capturePreviewLayer = [AVCaptureVideoPreviewLayer layerWithSession:newSession];
         self.capturePreviewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
         self.capturePreviewLayer.frame = self.previewView.bounds;
+
+        // Set rect of interest when specified
+        if (!CGRectIsNull(_rectOfInterest))
+        {
+            NSLog(@"rectOfInterest: %@", NSStringFromCGRect(_rectOfInterest));
+
+//            CGRect interestRectInPreview = [self.previewView.layer convertRect:_rectOfInterest fromLayer:self.previewView.layer];
+//
+//            NSLog(@"rect2: %@", NSStringFromCGRect(interestRectInPreview));
+
+            int x = _rectOfInterest.origin.x / self.previewView.frame.size.width;
+            int y = _rectOfInterest.origin.y / self.previewView.frame.size.height;
+            int width = _rectOfInterest.size.width / self.previewView.frame.size.width;
+            int height = _rectOfInterest.size.height / self.previewView.frame.size.height;
+
+            CGRect interestRect = CGRectMake(x, y, width, height);
+
+            NSLog(@"rect2: %@", NSStringFromCGRect(interestRect));
+
+//            CGRect rect = [self.capturePreviewLayer metadataOutputRectOfInterestForRect:_rectOfInterest];
+//            NSLog(@"rect: %@", NSStringFromCGRect(rect));
+
+            captureOutput.rectOfInterest = interestRect;
+        }
         
+//        // Re-set focus point of interest on AVCaptureDevice
+//        NSError *lockError = nil;
+//        if ([self.captureDevice lockForConfiguration:&lockError] == YES) {
+//            // Focus on the middle of rect of interest
+//            if ([self.captureDevice respondsToSelector:@selector(isFocusPointOfInterestSupported)] &&
+//                self.captureDevice.isFocusPointOfInterestSupported) {
+//
+//                if (!CGRectIsNull(_rectOfInterest))
+//                {
+//                    CGPoint rectOfInterestCenter = CGPointMake(_rectOfInterest.origin.x + _rectOfInterest.size.width / 2,
+//                                                               _rectOfInterest.origin.y + _rectOfInterest.size.height / 2);
+//                    CGPoint focusPointOfInterest = [self.capturePreviewLayer captureDevicePointOfInterestForPoint:rectOfInterestCenter];
+//
+//                    self.captureDevice.focusPointOfInterest = focusPointOfInterest;
+//                }
+//            }
+//
+//            [self.captureDevice unlockForConfiguration];
+//        }
+
         [newSession commitConfiguration];
     } else {
         NSLog(@"Error adding AVCaptureDeviceInput to AVCaptureSession: %@", inputError);
@@ -316,6 +388,7 @@ CGFloat const kFocalPointOfInterestY = 0.5;
         // Focus on the center of the image
         if ([newCaptureDevice respondsToSelector:@selector(isFocusPointOfInterestSupported)] &&
             newCaptureDevice.isFocusPointOfInterestSupported) {
+
             newCaptureDevice.focusPointOfInterest = CGPointMake(kFocalPointOfInterestX, kFocalPointOfInterestY);
         }
         
